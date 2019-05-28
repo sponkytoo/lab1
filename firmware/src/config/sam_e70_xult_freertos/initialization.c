@@ -470,7 +470,12 @@ TCPIP_STACK_HEAP_INTERNAL_CONFIG tcpipHeapConfig =
 };
 
 
-const TCPIP_NETWORK_CONFIG __attribute__((unused))  TCPIP_HOSTS_CONFIGURATION[] =
+/* For MAC Address read from external EEPROM, the internal TCPIP_HOSTS_CONFIGURATION
+ * must be placed in the RAM. If it is decleared as "const", it is placed in Flash
+ * and cannot be changed during runtime
+ */
+//const TCPIP_NETWORK_CONFIG __attribute__((unused))  TCPIP_HOSTS_CONFIGURATION[] =
+TCPIP_NETWORK_CONFIG __attribute__((unused))  TCPIP_HOSTS_CONFIGURATION[] =
 {
 	/*** Network Configuration Index 0 ***/
     {
@@ -675,6 +680,8 @@ void SYS_Initialize ( void* data )
      
     
 	BSP_Initialize();
+	TWIHS0_Initialize();
+
 	USART1_Initialize();
 
 	RSWDT_REGS->RSWDT_MR = RSWDT_MR_WDDIS_Msk;	// Disable RSWDT 
@@ -698,8 +705,12 @@ void SYS_Initialize ( void* data )
 
 
     /* TCPIP Stack Initialization */
-    sysObj.tcpip = TCPIP_STACK_Init();
-    SYS_ASSERT(sysObj.tcpip != SYS_MODULE_OBJ_INVALID, "TCPIP_STACK_Init Failed" );
+    /* The TCP Stack initialization must be done later in the application code.
+     * Because first, the MAC address has to be read from the external EEPROM. 
+     * And then the Stack can be initialized with the unique MAC from the EE
+     */
+    //commented out  sysObj.tcpip = TCPIP_STACK_Init();
+    //commented out  SYS_ASSERT(sysObj.tcpip != SYS_MODULE_OBJ_INVALID, "TCPIP_STACK_Init Failed" );
 
 
     /*** File System Service Initialization Code ***/

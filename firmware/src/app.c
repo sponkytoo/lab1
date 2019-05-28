@@ -1,25 +1,25 @@
 /*******************************************************************************
-* Copyright (C) 2019 Microchip Technology Inc. and its subsidiaries.
-*
-* Subject to your compliance with these terms, you may use Microchip software
-* and any derivatives exclusively with Microchip products. It is your
-* responsibility to comply with third party license terms applicable to your
-* use of third party software (including open source software) that may
-* accompany Microchip software.
-*
-* THIS SOFTWARE IS SUPPLIED BY MICROCHIP "AS IS". NO WARRANTIES, WHETHER
-* EXPRESS, IMPLIED OR STATUTORY, APPLY TO THIS SOFTWARE, INCLUDING ANY IMPLIED
-* WARRANTIES OF NON-INFRINGEMENT, MERCHANTABILITY, AND FITNESS FOR A
-* PARTICULAR PURPOSE.
-*
-* IN NO EVENT WILL MICROCHIP BE LIABLE FOR ANY INDIRECT, SPECIAL, PUNITIVE,
-* INCIDENTAL OR CONSEQUENTIAL LOSS, DAMAGE, COST OR EXPENSE OF ANY KIND
-* WHATSOEVER RELATED TO THE SOFTWARE, HOWEVER CAUSED, EVEN IF MICROCHIP HAS
-* BEEN ADVISED OF THE POSSIBILITY OR THE DAMAGES ARE FORESEEABLE. TO THE
-* FULLEST EXTENT ALLOWED BY LAW, MICROCHIP'S TOTAL LIABILITY ON ALL CLAIMS IN
-* ANY WAY RELATED TO THIS SOFTWARE WILL NOT EXCEED THE AMOUNT OF FEES, IF ANY,
-* THAT YOU HAVE PAID DIRECTLY TO MICROCHIP FOR THIS SOFTWARE.
-*******************************************************************************/
+ * Copyright (C) 2019 Microchip Technology Inc. and its subsidiaries.
+ *
+ * Subject to your compliance with these terms, you may use Microchip software
+ * and any derivatives exclusively with Microchip products. It is your
+ * responsibility to comply with third party license terms applicable to your
+ * use of third party software (including open source software) that may
+ * accompany Microchip software.
+ *
+ * THIS SOFTWARE IS SUPPLIED BY MICROCHIP "AS IS". NO WARRANTIES, WHETHER
+ * EXPRESS, IMPLIED OR STATUTORY, APPLY TO THIS SOFTWARE, INCLUDING ANY IMPLIED
+ * WARRANTIES OF NON-INFRINGEMENT, MERCHANTABILITY, AND FITNESS FOR A
+ * PARTICULAR PURPOSE.
+ *
+ * IN NO EVENT WILL MICROCHIP BE LIABLE FOR ANY INDIRECT, SPECIAL, PUNITIVE,
+ * INCIDENTAL OR CONSEQUENTIAL LOSS, DAMAGE, COST OR EXPENSE OF ANY KIND
+ * WHATSOEVER RELATED TO THE SOFTWARE, HOWEVER CAUSED, EVEN IF MICROCHIP HAS
+ * BEEN ADVISED OF THE POSSIBILITY OR THE DAMAGES ARE FORESEEABLE. TO THE
+ * FULLEST EXTENT ALLOWED BY LAW, MICROCHIP'S TOTAL LIABILITY ON ALL CLAIMS IN
+ * ANY WAY RELATED TO THIS SOFTWARE WILL NOT EXCEED THE AMOUNT OF FEES, IF ANY,
+ * THAT YOU HAVE PAID DIRECTLY TO MICROCHIP FOR THIS SOFTWARE.
+ *******************************************************************************/
 
 /*******************************************************************************
   MPLAB Harmony Application Source File
@@ -57,6 +57,23 @@
 // *****************************************************************************
 // *****************************************************************************
 
+#define APP_AT24MAC_DEVICE_MACADDR          (0x5f9A)
+#define MAC_ADDR_LENGTH (6)
+
+typedef enum {
+    MAC_ADDR_READ_STATE_READ,
+    MAC_ADDR_READ_STATE_WAIT,
+    MAC_ADDR_READ_STATE_SUCCESS,
+    MAC_ADDR_READ_STATE_ERROR,
+} AT24_MAC_ADDR_READ_STATE;
+
+char macAddr[6];
+char macAddrString[18];
+extern TCPIP_NETWORK_CONFIG __attribute__((unused)) TCPIP_HOSTS_CONFIGURATION[];
+static void AT24_MacAddr_Read(void);
+SYS_MODULE_OBJ TCPIP_STACK_Init();
+
+
 // *****************************************************************************
 /* Application Data
 
@@ -70,7 +87,7 @@
     This structure should be initialized by the APP_Initialize function.
 
     Application strings and buffers are be defined outside this structure.
-*/
+ */
 
 APP_DATA appData;
 
@@ -82,7 +99,7 @@ APP_LED_STATE LEDstate = APP_LED_STATE_OFF;
 // *****************************************************************************
 
 /* TODO:  Add any necessary callback functions.
-*/
+ */
 
 // *****************************************************************************
 // *****************************************************************************
@@ -90,10 +107,53 @@ APP_LED_STATE LEDstate = APP_LED_STATE_OFF;
 // *****************************************************************************
 // *****************************************************************************
 
-
 /* TODO:  Add any necessary local functions.
-*/
+ */
 
+void AT24_MacAddr_Read_Callback(uintptr_t context) {
+    AT24_MAC_ADDR_READ_STATE* transferState = (AT24_MAC_ADDR_READ_STATE*) context;
+
+    if (TWIHS0_ErrorGet() == TWIHS_ERROR_NONE) {
+        if (transferState) {
+            *transferState = MAC_ADDR_READ_STATE_SUCCESS;
+        }
+    } else {
+        if (transferState) {
+            *transferState = MAC_ADDR_READ_STATE_ERROR;
+        }
+    }
+}
+
+static void AT24_MacAddr_Read(void) {
+    static AT24_MAC_ADDR_READ_STATE state = MAC_ADDR_READ_STATE_READ;
+    switch (state) {
+        case MAC_ADDR_READ_STATE_READ:
+            /* Register the TWIHS Callback with transfer status as context */
+            TWIHS0_CallbackRegister(AT24_MacAddr_Read_Callback, (uintptr_t) & state);
+            //Initiate Read AT24 MAC Address
+            TWIHS0_Read(APP_AT24MAC_DEVICE_MACADDR, (uint8_t *) (macAddr), MAC_ADDR_LENGTH);
+            state = MAC_ADDR_READ_STATE_WAIT;
+            break;
+
+        case MAC_ADDR_READ_STATE_WAIT:
+            break;
+
+        case MAC_ADDR_READ_STATE_SUCCESS:
+            //convert MAC address to string format
+            TCPIP_Helper_MACAddressToString((const TCPIP_MAC_ADDR*) macAddr, macAddrString, 18);
+            //update host configuration with new MAC address
+            (TCPIP_HOSTS_CONFIGURATION[0].macAddr) = (char*) macAddrString;            
+            SYS_CONSOLE_PRINT("MAC TCPIP_HOSTS_CONFIGURATION[0].macAddr: %s\n\r",TCPIP_HOSTS_CONFIGURATION[0].macAddr);
+            appData.state = APP_TCPIP_INIT_TCPIP_STACK;
+            break;
+
+        case MAC_ADDR_READ_STATE_ERROR:
+            // error; use default MAC address
+            appData.state = APP_TCPIP_INIT_TCPIP_STACK;
+            break;
+    }
+
+}
 
 // *****************************************************************************
 // *****************************************************************************
@@ -112,9 +172,9 @@ void APP_Initialize ( void )
 {
     /* Place the App state machine in its initial state. */
     appData.state = APP_TCPIP_WAIT_INIT;
-    
+
     /* Place the application state machine in its initial state. */
-    appData.state = APP_MOUNT_DISK;
+    appData.state = APP_START_CASE;
 }
 
 /******************************************************************************
@@ -138,15 +198,32 @@ void APP_Tasks ( void )
 
     SYS_CMD_READY_TO_READ();
 
-    switch(appData.state)
-    {
+    switch (appData.state) {
+        case APP_START_CASE:
+            SYS_CONSOLE_PRINT("\n\r==========================================================\r\n");
+            SYS_CONSOLE_PRINT("web_net_server_nvm_mpfs_freertos_lab1 %s %s\r\n", __DATE__, __TIME__);
+            appData.state = APP_MOUNT_DISK;
+            break;
+        
         case APP_MOUNT_DISK:
             if(SYS_FS_Mount(SYS_FS_NVM_VOL, LOCAL_WEBSITE_PATH_FS, MPFS2, 0, NULL) == 0)
             {
                 SYS_CONSOLE_PRINT("SYS_Initialize: The %s File System is mounted\r\n", SYS_FS_MPFS_STRING);
-                appData.state = APP_TCPIP_WAIT_INIT;
+                appData.state = APP_TCPIP_INIT_MAC;
             }
             break;
+
+        case APP_TCPIP_INIT_MAC:
+            // Read MAC address 
+            AT24_MacAddr_Read();
+            break;
+        case APP_TCPIP_INIT_TCPIP_STACK:
+            // TCPIP Stack Initialization
+            sysObj.tcpip = TCPIP_STACK_Init();
+            SYS_ASSERT(sysObj.tcpip != SYS_MODULE_OBJ_INVALID, "TCPIP_STACK_Init Failed");
+            appData.state = APP_TCPIP_WAIT_INIT;
+            break;
+
 
         case APP_TCPIP_WAIT_INIT:
             tcpipStat = TCPIP_STACK_Status(sysObj.tcpip);
